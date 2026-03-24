@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+         http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <!--
+        聚合型根 pom（Aggregator POM）
+        作用：让 IntelliJ IDEA 识别整个目录为 Maven 项目，统一管理子模块。
+        注意：各子模块仍继承自己的 spring-boot-starter-parent，版本独立，互不影响。
+    -->
+    <groupId>com.kxzhu.photoapp</groupId>
+    <artifactId>photo-app-microservices</artifactId>
+    <version>1.0.0</version>
+    <packaging>pom</packaging>
+    <name>Photo App Microservices</name>
+
+    <modules>
+        <module>PhotoAppDiscoveryService</module>
+        <module>PhotoAppAPIConfigServer</module>
+        <module>ApiGateway</module>
+        <module>PhotoAppApiUsers</module>
+        <module>PhotoAppApiAlbums</module>
+        <module>PhotoAppApiAccountManagement</module>
+    </modules>
+
+</project>

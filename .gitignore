@@ -1,0 +1,44 @@
+# ============================================================
+#  ROOT .gitignore for photo-app-microservices mono-repo
+# ============================================================
+
+# ── Maven / Build ────────────────────────────────────────────
+target/
+*.class
+*.jar
+!.mvn/wrapper/maven-wrapper.jar
+
+# ── IDE ─────────────────────────────────────────────────────
+.idea/
+*.iml
+*.iws
+*.ipr
+.vscode/
+*.swp
+.DS_Store
+
+# ── SECURITY: Keystores & Private Keys ───────────────────────
+# NEVER commit these — they decrypt all config secrets
+*.jks
+*.p12
+*.pem
+*.key
+*.keystore
+keystores/
+PhotoAppKeyFiles/      # entire folder must never be committed
+
+# ── SECURITY: Environment & Secret Files ─────────────────────
+.env
+.env.local
+.env.aws
+.env.prod
+# .env.example is ALLOWED (it has no real values)
+
+# ── Runtime Logs ─────────────────────────────────────────────
+logs/
+*.log
+*.log.*.gz
+
+# ── Docker ───────────────────────────────────────────────────
+# docker-compose.override.yml is allowed, but not local overrides
+docker-compose.local.yml
