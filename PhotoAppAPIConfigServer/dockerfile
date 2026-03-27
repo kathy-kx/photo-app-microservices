@@ -1,0 +1,7 @@
+FROM eclipse-temurin:17-jre
+VOLUME /tmp
+# 复制加密 keystore（路径与 application.properties 中一致）
+COPY keystores/apiEncryptionKey.jks /keystores/apiEncryptionKey.jks
+ARG JAR_FILE=target/*.jar
+COPY ${JAR_FILE} app.jar
+ENTRYPOINT ["java", "-jar", "/app.jar"]

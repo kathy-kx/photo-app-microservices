@@ -1,0 +1,6 @@
+FROM eclipse-temurin:17-jre
+VOLUME /tmp
+ARG JAR_FILE=target/*.jar
+COPY ${JAR_FILE} app.jar
+# 指定使用 /dev/urandom 加速 JWT 加密随机数生成，防止容器启动超时
+ENTRYPOINT ["java", "-Djava.security.egd=file:/dev/./urandom", "-jar", "/app.jar"]

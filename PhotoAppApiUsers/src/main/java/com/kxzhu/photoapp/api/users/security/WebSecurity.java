@@ -55,12 +55,16 @@ public class WebSecurity {
         authenticationFilter.setFilterProcessesUrl(environment.getProperty("login.url.path"));
 
         http.csrf().disable();
+
+        //支持通过环境变量配置，Docker 里可以传入网段
+        String gatewayIp = environment.getProperty("gateway.ip", "127.0.0.1");
         // 2、请求授权规则
         http.authorizeHttpRequests()
                 // 规则1：GET /users/status/check 允许访问
                 .requestMatchers(HttpMethod.GET, "/users/status/check").permitAll()
                 // 规则2：POST /users 只允许来自网关IP的请求 注册用户
-                .requestMatchers(HttpMethod.POST, "/users").access(new WebExpressionAuthorizationManager("hasIpAddress('"+ environment.getProperty("gateway.ip")+"')"))//参数是一个安全表达式security expression。如果hasIpAddress('10.0.0.13')为true，则请求会被允许；否则拒绝请求。填API gateway的ip
+                //.requestMatchers(HttpMethod.POST, "/users").access(new WebExpressionAuthorizationManager("hasIpAddress('"+ environment.getProperty("gateway.ip")+"')"))//参数是一个安全表达式security expression。如果hasIpAddress('10.0.0.13')为true，则请求会被允许；否则拒绝请求。填API gateway的ip
+                .requestMatchers(HttpMethod.POST, "/users").access(new WebExpressionAuthorizationManager("hasIpAddress('" + gatewayIp + "')"))
                 //规则3：H2控制台完全开放
                 .requestMatchers(new AntPathRequestMatcher("/h2-console/**")).permitAll()
                 //规则4：监控actuator开放

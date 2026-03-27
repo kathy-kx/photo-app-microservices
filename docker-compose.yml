@@ -1,0 +1,167 @@
+version: '3.8'
+
+services:
+
+  # ─────────────────────────────────────────────
+  # 基础设施层：RabbitMQ（Config Server 依赖它）
+  # ─────────────────────────────────────────────
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: rabbitmq
+    ports:
+      - "15672:15672"   # 管理界面
+      - "5672:5672"     # AMQP
+    networks:
+      - api-network
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+
+  # ─────────────────────────────────────────────
+  # 配置中心（依赖 RabbitMQ）
+  # ─────────────────────────────────────────────
+  config-server:
+    build:
+      context: ./PhotoAppAPIConfigServer    # Directory name of Config Server Project
+      dockerfile: Dockerfile
+    image: ${DOCKER_REGISTRY:-local}/config-server:latest
+    container_name: config-server
+    ports:
+      - "8012:8012"
+    environment:
+      # RabbitMQ 连接：指向 docker-compose 内的容器名
+      - SPRING_RABBITMQ_HOST=rabbitmq
+      - SPRING_RABBITMQ_PORT=5672
+      # Git 仓库认证（从 .env 文件读取，不写死）
+      - SPRING_CLOUD_CONFIG_SERVER_GIT_USERNAME=${GIT_USERNAME}
+      - SPRING_CLOUD_CONFIG_SERVER_GIT_PASSWORD=${GIT_PASSWORD}
+      # Keystore 密码（用于解密配置中的加密值）
+      - ENCRYPT_KEYSTORE_PASSWORD=${ENCRYPT_KEYSTORE_PASSWORD}
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - api-network
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:8012/actuator/health"]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  # ─────────────────────────────────────────────
+  # 服务注册中心（依赖 Config Server）
+  # ─────────────────────────────────────────────
+  eureka-server:
+    build:
+      context: ./PhotoAppDiscoveryService
+      dockerfile: Dockerfile
+    image: ${DOCKER_REGISTRY:-local}/eureka-server:latest
+    container_name: eureka-server
+    ports:
+      - "8010:8010"
+    environment:
+      # 指向 Docker 内的 Config Server
+      - SPRING_CONFIG_IMPORT=optional:configserver:http://config-server:8012
+      # 本地单节点模式（不向自己注册）
+      - EUREKA_CLIENT_REGISTER-WITH-EUREKA=false
+      - EUREKA_CLIENT_FETCH-REGISTRY=false
+    depends_on:
+      config-server:
+        condition: service_healthy
+    networks:
+      - api-network
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:8010/actuator/health"]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+
+  # ─────────────────────────────────────────────
+  # API 网关（依赖 Eureka + Config Server）
+  # ─────────────────────────────────────────────
+  api-gateway:
+    build:
+      context: ./ApiGateway         # Directory name of Gateway project
+      dockerfile: Dockerfile
+    image: ${DOCKER_REGISTRY:-local}/api-gateway:latest
+    container_name: api-gateway
+    ports:
+      - "8082:8082"
+    environment:
+      - SPRING_CONFIG_IMPORT=optional:configserver:http://config-server:8012
+      - SPRING_RABBITMQ_HOST=rabbitmq
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://test:test@eureka-server:8010/eureka
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+    networks:
+      - api-network
+
+  # ─────────────────────────────────────────────
+  # Users 微服务（依赖 Config/Eureka/MySQL/RabbitMQ）
+  # ─────────────────────────────────────────────
+  users-ws:
+    build:
+      context: ./PhotoAppApiUsers
+      dockerfile: Dockerfile
+    image: ${DOCKER_REGISTRY:-local}/users-ws:latest
+    container_name: users-ws
+    environment:
+      - SPRING_CONFIG_IMPORT=optional:configserver:http://config-server:8012
+      - SPRING_RABBITMQ_HOST=rabbitmq
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://test:test@eureka-server:8010/eureka
+      # MySQL 连接（本地用 host.docker.internal，AWS 用 RDS endpoint）
+      - SPRING_DATASOURCE_URL=${MYSQL_URL:-jdbc:mysql://host.docker.internal:3306/photo_app?serverTimezone=UTC}
+      - SPRING_DATASOURCE_USERNAME=${MYSQL_USERNAME:-kathy}
+      - SPRING_DATASOURCE_PASSWORD=${MYSQL_PASSWORD}
+      # gateway.ip 改为 Docker 内网网段（允许 api-gateway 容器访问）
+      - GATEWAY_IP=172.18.0.0/16
+      # Zipkin 链路追踪
+      - MANAGEMENT_ZIPKIN_TRACING_ENDPOINT=http://zipkin:9411/api/v2/spans
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+    networks:
+      - api-network
+
+  # ─────────────────────────────────────────────
+  # Albums 微服务
+  # ─────────────────────────────────────────────
+  albums-ws:
+    build:
+      context: ./PhotoAppApiAlbums
+      dockerfile: Dockerfile
+    image: ${DOCKER_REGISTRY:-local}/albums-ws:latest
+    container_name: albums-ws
+    environment:
+      - SPRING_CONFIG_IMPORT=optional:configserver:http://config-server:8012
+      - SPRING_RABBITMQ_HOST=rabbitmq
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://test:test@eureka-server:8010/eureka
+      - MANAGEMENT_ZIPKIN_TRACING_ENDPOINT=http://zipkin:9411/api/v2/spans
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+    networks:
+      - api-network
+
+  # ─────────────────────────────────────────────
+  # Zipkin 分布式追踪
+  # ─────────────────────────────────────────────
+  zipkin:
+    image: openzipkin/zipkin:latest
+    container_name: zipkin
+    ports:
+      - "9411:9411"
+    networks:
+      - api-network
+
+networks:
+  api-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.18.0.0/16    # 固定 Docker 网段，与 GATEWAY_IP 对应
