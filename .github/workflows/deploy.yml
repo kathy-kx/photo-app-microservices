@@ -45,6 +45,12 @@ jobs:
       - name: Login to ECR
         uses: aws-actions/amazon-ecr-login@v2
 
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Build & push all images
         run: |
           for item in \
@@ -58,8 +64,7 @@ jobs:
             SVC="${item##*:}"
             IMAGE="$ECR_PREFIX/$SVC:latest"
             echo ">>> Building and pushing $SVC"
-            docker build -t $IMAGE $DIR/
-            docker push $IMAGE
+            docker buildx build --platform linux/arm64 -t $IMAGE $DIR/ --push
           done
 
       - name: Deploy to EC2 via SSH
