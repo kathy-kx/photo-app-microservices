@@ -24,7 +24,7 @@ jobs:
 
       - name: Build all JARs
         run: |
-          for dir in PhotoAppAPIConfigServer PhotoAppDiscoveryService PhotoAppApiGateway PhotoAppApiUsers PhotoAppApiAlbums; do
+          for dir in PhotoAppAPIConfigServer PhotoAppDiscoveryService ApiGateway PhotoAppApiUsers PhotoAppApiAlbums; do
             echo "Building $dir..."
             (cd $dir && mvn clean package -DskipTests -q)
           done
@@ -44,7 +44,7 @@ jobs:
           for item in \
             "PhotoAppAPIConfigServer:config-server" \
             "PhotoAppDiscoveryService:eureka-server" \
-            "PhotoAppApiGateway:api-gateway" \
+            "ApiGateway:api-gateway" \
             "PhotoAppApiUsers:users-ws" \
             "PhotoAppApiAlbums:albums-ws"
           do
@@ -63,11 +63,8 @@ jobs:
           username: ec2-user
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
-            aws ecr get-login-password --region us-east-1 | \
-              docker login --username AWS --password-stdin ${{ env.ECR_PREFIX }}
+            aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin ${{ env.ECR_PREFIX }}
             cd ~/photo-app
-#            docker-compose --env-file .env.aws pull
-#            docker-compose --env-file .env.aws up -d --remove-orphans
             docker-compose --env-file .env.aws pull
             
             docker-compose --env-file .env.aws up -d rabbitmq
