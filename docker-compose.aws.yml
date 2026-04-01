@@ -1,0 +1,167 @@
+version: '3.8'
+
+# AWS 版 docker-compose
+# 与本地版的区别：
+#   1. 所有服务去掉 build:，直接从 ECR 拉取镜像
+#   2. MySQL 连接指向 RDS（由 .env.aws 中的 MYSQL_URL 提供）
+#   3. 配合 .env.aws 使用：docker-compose -f docker-compose.aws.yml --env-file .env.aws up -d
+
+# AWS Docker Compose configuration
+# Differences from local setup:
+#   1. Remove all `build:` sections — images are pulled directly from ECR
+#   2. MySQL connection points to RDS (configured via MYSQL_URL in .env.aws)
+#   3. Run with:
+#      docker-compose -f docker-compose.aws.yml --env-file .env.aws up -d
+
+services:
+
+  # ─────────────────────────────────────────────
+  # Infrastructure Layer：RabbitMQ (Message Broker)
+  # ─────────────────────────────────────────────
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: rabbitmq
+    ports:
+      - "15672:15672"
+      - "5672:5672"
+    networks:
+      - api-network
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+
+  # ─────────────────────────────────────────────
+  # Configuration Layer: Config Server (centralized configuration management)
+  # ─────────────────────────────────────────────
+  config-server:
+    image: 765776786463.dkr.ecr.us-east-1.amazonaws.com/config-server:latest
+    container_name: config-server
+    ports:
+      - "8012:8012"
+    environment:
+#      - JAVA_TOOL_OPTIONS=-Xms32m -Xmx128m -XX:MaxMetaspaceSize=96m -XX:+UseSerialGC
+      - JAVA_TOOL_OPTIONS=-Xms64m -Xmx192m -XX:MaxMetaspaceSize=192m -XX:+UseSerialGC
+      - SPRING_RABBITMQ_HOST=rabbitmq
+      - SPRING_RABBITMQ_PORT=5672
+      - SPRING_CLOUD_CONFIG_SERVER_GIT_USERNAME=${GIT_USERNAME}
+      - SPRING_CLOUD_CONFIG_SERVER_GIT_PASSWORD=${GIT_PASSWORD}
+      - ENCRYPT_KEYSTORE_PASSWORD=${ENCRYPT_KEYSTORE_PASSWORD}
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - api-network
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:8012/actuator/health"]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  # ─────────────────────────────────────────────
+  # Service Discovery: Eureka Server (service registry)
+  # ─────────────────────────────────────────────
+  eureka-server:
+    image: 765776786463.dkr.ecr.us-east-1.amazonaws.com/eureka-server:latest
+    container_name: eureka-server
+    ports:
+      - "8010:8010"
+    environment:
+#      - JAVA_TOOL_OPTIONS=-Xms32m -Xmx128m -XX:MaxMetaspaceSize=96m -XX:+UseSerialGC
+      - JAVA_TOOL_OPTIONS=-Xms64m -Xmx192m -XX:MaxMetaspaceSize=192m -XX:+UseSerialGC
+      - SPRING_CONFIG_IMPORT=optional:configserver:http://config-server:8012
+      - EUREKA_CLIENT_REGISTER-WITH-EUREKA=false
+      - EUREKA_CLIENT_FETCH-REGISTRY=false
+    depends_on:
+      config-server:
+        condition: service_healthy
+    networks:
+      - api-network
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:8010/actuator/health"]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+
+  # ─────────────────────────────────────────────
+  # API Gateway
+  # ─────────────────────────────────────────────
+  api-gateway:
+    image: 765776786463.dkr.ecr.us-east-1.amazonaws.com/api-gateway:latest
+    container_name: api-gateway
+    ports:
+      - "8082:8082"
+    environment:
+#      - JAVA_TOOL_OPTIONS=-Xms32m -Xmx128m -XX:MaxMetaspaceSize=96m -XX:+UseSerialGC
+      - JAVA_TOOL_OPTIONS=-Xms64m -Xmx192m -XX:MaxMetaspaceSize=192m -XX:+UseSerialGC
+      - SPRING_CONFIG_IMPORT=optional:configserver:http://config-server:8012
+      - SPRING_RABBITMQ_HOST=rabbitmq
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://test:test@eureka-server:8010/eureka
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+    networks:
+      - api-network
+
+  # ─────────────────────────────────────────────
+  # Users Microservice（Connected to RDS MySQL）
+  # ─────────────────────────────────────────────
+  users-ws:
+    image: 765776786463.dkr.ecr.us-east-1.amazonaws.com/users-ws:latest
+    container_name: users-ws
+    environment:
+#      - JAVA_TOOL_OPTIONS=-Xms32m -Xmx128m -XX:MaxMetaspaceSize=96m -XX:+UseSerialGC
+      - JAVA_TOOL_OPTIONS=-Xms64m -Xmx192m -XX:MaxMetaspaceSize=192m -XX:+UseSerialGC
+      - SPRING_CONFIG_IMPORT=optional:configserver:http://config-server:8012
+      - SPRING_RABBITMQ_HOST=rabbitmq
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://test:test@eureka-server:8010/eureka
+      - SPRING_DATASOURCE_URL=${MYSQL_URL}
+      - SPRING_DATASOURCE_USERNAME=${MYSQL_USERNAME}
+      - SPRING_DATASOURCE_PASSWORD=${MYSQL_PASSWORD}
+      - GATEWAY_IP=172.18.0.0/16
+      - MANAGEMENT_ZIPKIN_TRACING_ENDPOINT=http://zipkin:9411/api/v2/spans
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+    networks:
+      - api-network
+
+  # ─────────────────────────────────────────────
+  # Albums Microservice
+  # ─────────────────────────────────────────────
+  albums-ws:
+    image: 765776786463.dkr.ecr.us-east-1.amazonaws.com/albums-ws:latest
+    container_name: albums-ws
+    environment:
+#      - JAVA_TOOL_OPTIONS=-Xms32m -Xmx128m -XX:MaxMetaspaceSize=96m -XX:+UseSerialGC
+      - JAVA_TOOL_OPTIONS=-Xms64m -Xmx192m -XX:MaxMetaspaceSize=192m -XX:+UseSerialGC
+      - SPRING_CONFIG_IMPORT=optional:configserver:http://config-server:8012
+      - SPRING_RABBITMQ_HOST=rabbitmq
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://test:test@eureka-server:8010/eureka
+      - MANAGEMENT_ZIPKIN_TRACING_ENDPOINT=http://zipkin:9411/api/v2/spans
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+    networks:
+      - api-network
+
+  # ─────────────────────────────────────────────
+  # Observability: Zipkin (distributed tracing)
+  # ─────────────────────────────────────────────
+#  zipkin:
+#    image: openzipkin/zipkin:latest
+#    container_name: zipkin
+#    ports:
+#      - "9411:9411"
+#    networks:
+#      - api-network
+
+networks:
+  api-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.18.0.0/16
