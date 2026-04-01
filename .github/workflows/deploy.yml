@@ -29,6 +29,11 @@ jobs:
             (cd $dir && mvn clean package -DskipTests -q)
           done
 
+      - name: Restore Config Server keystore
+        run: |
+          mkdir -p PhotoAppAPIConfigServer/keystores
+          echo "${{ secrets.CONFIG_SERVER_KEYSTORE_B64 }}" | base64 -d > PhotoAppAPIConfigServer/keystores/apiEncryptionKey.jks
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
